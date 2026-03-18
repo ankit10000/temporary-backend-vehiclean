@@ -138,8 +138,11 @@ app.use('/api/chat', chatRoutes);
 // Error handler
 app.use(errorHandler);
 
+// Always export the Express app (Vercel serverless needs this)
+module.exports = app;
+
 // Socket.io and HTTP server — only outside Vercel (serverless doesn't support WebSockets)
-if (process.env.VERCEL !== '1') {
+if (!process.env.VERCEL) {
   const http = require('http');
   const { Server } = require('socket.io');
   const { verifyToken } = require('./utils/jwt');
@@ -163,52 +166,35 @@ if (process.env.VERCEL !== '1') {
   // Recover stale assignments after DB connects
   ensureDB().then(() => recoverStaleAssignments(app));
 
-  // Socket.io JWT authentication middleware
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
-    if (!token) {
-      return next(new Error('Authentication required'));
-    }
+    if (!token) return next(new Error('Authentication required'));
     try {
       const decoded = verifyToken(token);
-      socket.user = decoded; // { id, role }
-
-      const userId = decoded.id;
-      const count = userSocketCount.get(userId) || 0;
-      if (count >= MAX_SOCKETS_PER_USER) {
-        return next(new Error('Too many connections'));
-      }
-
+      socket.user = decoded;
+      const count = userSocketCount.get(decoded.id) || 0;
+      if (count >= MAX_SOCKETS_PER_USER) return next(new Error('Too many connections'));
       next();
     } catch {
       next(new Error('Invalid token'));
     }
   });
 
-  // Socket.io events
   io.on('connection', (socket) => {
     const userId = socket.user?.id;
-
     userSocketCount.set(userId, (userSocketCount.get(userId) || 0) + 1);
 
     socket.on('join', (data) => {
-      if (data.id !== socket.user.id || data.role !== socket.user.role) {
-        return;
-      }
-      const room = `${data.role}_${data.id}`;
-      socket.join(room);
+      if (data.id !== socket.user.id || data.role !== socket.user.role) return;
+      socket.join(`${data.role}_${data.id}`);
     });
 
     socket.on('partner_location', (data) => {
-      if (data.bookingId) {
-        io.to(`booking_${data.bookingId}`).emit('location_update', data);
-      }
+      if (data.bookingId) io.to(`booking_${data.bookingId}`).emit('location_update', data);
     });
 
     socket.on('join_booking', (data) => {
-      if (data.bookingId) {
-        socket.join(`booking_${data.bookingId}`);
-      }
+      if (data.bookingId) socket.join(`booking_${data.bookingId}`);
     });
 
     socket.on('chat_message', async (data) => {
@@ -229,11 +215,8 @@ if (process.env.VERCEL !== '1') {
 
     socket.on('disconnect', () => {
       const count = userSocketCount.get(userId) || 1;
-      if (count <= 1) {
-        userSocketCount.delete(userId);
-      } else {
-        userSocketCount.set(userId, count - 1);
-      }
+      if (count <= 1) userSocketCount.delete(userId);
+      else userSocketCount.set(userId, count - 1);
     });
   });
 
@@ -242,31 +225,19 @@ if (process.env.VERCEL !== '1') {
     console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
   });
 
-  // Graceful shutdown
   const gracefulShutdown = (signal) => {
     console.log(`\n${signal} received. Shutting down gracefully...`);
     server.close(() => {
-      console.log('HTTP server closed');
       io.close(() => {
-        console.log('Socket.io server closed');
         const mongoose = require('mongoose');
-        mongoose.connection.close(false).then(() => {
-          console.log('MongoDB connection closed');
-          process.exit(0);
-        });
+        mongoose.connection.close(false).then(() => process.exit(0));
       });
     });
-    setTimeout(() => {
-      console.error('Forced shutdown after timeout');
-      process.exit(1);
-    }, 10000);
+    setTimeout(() => process.exit(1), 10000);
   };
 
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
   module.exports = { app, server, io };
-} else {
-  // Vercel serverless — export just the Express app
-  module.exports = app;
 }
