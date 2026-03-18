@@ -47,10 +47,6 @@ const corsOptions = {
 app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'Vehiclean API is running' });
 });
-app.get('/api/ping', (req, res) => {
-  res.json({ pong: true, env: process.env.NODE_ENV, vercel: process.env.VERCEL, hasMongoUri: !!process.env.MONGODB_URI });
-});
-
 // Connect to MongoDB (lazy — only connects on first API request that needs DB)
 let dbReady = null;
 const ensureDB = () => {
