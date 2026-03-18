@@ -43,6 +43,14 @@ const corsOptions = {
   credentials: true,
 };
 
+// Health check (no DB needed)
+app.get('/api/health', (req, res) => {
+  res.json({ success: true, message: 'Vehiclean API is running' });
+});
+app.get('/api/ping', (req, res) => {
+  res.json({ pong: true, env: process.env.NODE_ENV, vercel: process.env.VERCEL, hasMongoUri: !!process.env.MONGODB_URI });
+});
+
 // Connect to MongoDB
 const dbReady = connectDB();
 
@@ -116,11 +124,6 @@ app.use('/api/users', userRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/chat', chatRoutes);
-
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'Vehiclean API is running' });
-});
 
 // Error handler
 app.use(errorHandler);
