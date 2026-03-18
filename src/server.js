@@ -37,8 +37,16 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: (process.env.NODE_ENV === 'production' && allowedOrigins.length > 0)
-    ? allowedOrigins
-    : true, // Allow all in development or when no origins configured
+    ? (origin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, etc.)
+        if (!origin) return callback(null, true);
+        // Allow exact matches or any *.vercel.app subdomain
+        if (allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin)) {
+          return callback(null, true);
+        }
+        callback(new Error('Not allowed by CORS'));
+      }
+    : true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   credentials: true,
 };

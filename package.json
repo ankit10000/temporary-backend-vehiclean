@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "start:prod": "node -r dotenv/config src/server.js dotenv_config_path=.env.production",
+    "seed": "node src/seed.js",
+    "seed:prod": "MONGODB_URI=mongodb+srv://onlineinbox07_db_user:onlineinbox07_db_user@vehiclean.6qfwux6.mongodb.net/vehiclean node src/seed.js",
     "test": "jest --forceExit --detectOpenHandles"
   },
   "dependencies": {
