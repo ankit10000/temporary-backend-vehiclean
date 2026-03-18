@@ -51,13 +51,23 @@ app.get('/api/ping', (req, res) => {
   res.json({ pong: true, env: process.env.NODE_ENV, vercel: process.env.VERCEL, hasMongoUri: !!process.env.MONGODB_URI });
 });
 
-// Connect to MongoDB
-const dbReady = connectDB();
+// Connect to MongoDB (lazy — only connects on first API request that needs DB)
+let dbReady = null;
+const ensureDB = () => {
+  if (!dbReady) {
+    dbReady = connectDB().catch((err) => {
+      console.error('DB connection failed:', err.message);
+      dbReady = null; // Reset so it retries on next request
+      throw err;
+    });
+  }
+  return dbReady;
+};
 
 // Ensure DB is connected before handling requests (important for serverless)
 app.use(async (req, res, next) => {
   try {
-    await dbReady;
+    await ensureDB();
     next();
   } catch (err) {
     res.status(500).json({ success: false, message: 'Database connection failed' });
@@ -151,7 +161,7 @@ if (process.env.VERCEL !== '1') {
   app.set('io', io);
 
   // Recover stale assignments after DB connects
-  dbReady.then(() => recoverStaleAssignments(app));
+  ensureDB().then(() => recoverStaleAssignments(app));
 
   // Socket.io JWT authentication middleware
   io.use((socket, next) => {
