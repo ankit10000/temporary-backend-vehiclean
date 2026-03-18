@@ -3,3 +3,4 @@ node_modules/
 uploads/
 firebase-service-account.json
 *firebase*adminsdk*.json
+.vercel

@@ -65,8 +65,20 @@ const MAX_SOCKETS_PER_USER = 3;
 app.set('io', io);
 
 // Connect to MongoDB, then recover stale assignments
-connectDB().then(() => {
-  recoverStaleAssignments(app);
+const dbReady = connectDB().then(() => {
+  if (process.env.VERCEL !== '1') {
+    recoverStaleAssignments(app);
+  }
+});
+
+// Ensure DB is connected before handling requests (important for serverless)
+app.use(async (req, res, next) => {
+  try {
+    await dbReady;
+    next();
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Database connection failed' });
+  }
 });
 
 // Middleware
