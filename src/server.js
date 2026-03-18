@@ -5,13 +5,9 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
-const http = require('http');
-const { Server } = require('socket.io');
 
 const connectDB = require('./config/db');
 const errorHandler = require('./middleware/errorHandler');
-const { verifyToken } = require('./utils/jwt');
-const { recoverStaleAssignments } = require('./utils/assignmentTimeout');
 
 // Route imports
 const authRoutes = require('./routes/authRoutes');
@@ -28,7 +24,6 @@ const productRoutes = require('./routes/productRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 
 const app = express();
-const server = http.createServer(app);
 
 // Trust proxy — required for rate limiting behind load balancer/reverse proxy
 app.set('trust proxy', 1);
@@ -41,35 +36,15 @@ const allowedOrigins = [
 ].filter(Boolean);
 
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production'
+  origin: (process.env.NODE_ENV === 'production' && allowedOrigins.length > 0)
     ? allowedOrigins
-    : true, // Allow all in development
+    : true, // Allow all in development or when no origins configured
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   credentials: true,
 };
 
-// Socket.io setup — with connection limits and restricted CORS
-const io = new Server(server, {
-  cors: corsOptions,
-  maxHttpBufferSize: 1e6, // 1MB max message size
-  pingInterval: 25000,
-  pingTimeout: 20000,
-  connectTimeout: 10000,
-});
-
-// Track connections per user to prevent abuse
-const userSocketCount = new Map();
-const MAX_SOCKETS_PER_USER = 3;
-
-// Make io accessible in routes
-app.set('io', io);
-
-// Connect to MongoDB, then recover stale assignments
-const dbReady = connectDB().then(() => {
-  if (process.env.VERCEL !== '1') {
-    recoverStaleAssignments(app);
-  }
-});
+// Connect to MongoDB
+const dbReady = connectDB();
 
 // Ensure DB is connected before handling requests (important for serverless)
 app.use(async (req, res, next) => {
@@ -147,123 +122,138 @@ app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'Vehiclean API is running' });
 });
 
-// Socket.io JWT authentication middleware
-io.use((socket, next) => {
-  const token = socket.handshake.auth?.token;
-  if (!token) {
-    return next(new Error('Authentication required'));
-  }
-  try {
-    const decoded = verifyToken(token);
-    socket.user = decoded; // { id, role }
-
-    // Enforce per-user connection limit
-    const userId = decoded.id;
-    const count = userSocketCount.get(userId) || 0;
-    if (count >= MAX_SOCKETS_PER_USER) {
-      return next(new Error('Too many connections'));
-    }
-
-    next();
-  } catch {
-    next(new Error('Invalid token'));
-  }
-});
-
-// Socket.io events
-io.on('connection', (socket) => {
-  const userId = socket.user?.id;
-
-  // Track connection count
-  userSocketCount.set(userId, (userSocketCount.get(userId) || 0) + 1);
-
-  socket.on('join', (data) => {
-    // Validate: only allow joining your own room
-    if (data.id !== socket.user.id || data.role !== socket.user.role) {
-      return;
-    }
-    const room = `${data.role}_${data.id}`;
-    socket.join(room);
-  });
-
-  socket.on('partner_location', (data) => {
-    if (data.bookingId) {
-      io.to(`booking_${data.bookingId}`).emit('location_update', data);
-    }
-  });
-
-  socket.on('join_booking', (data) => {
-    if (data.bookingId) {
-      socket.join(`booking_${data.bookingId}`);
-    }
-  });
-
-  socket.on('chat_message', async (data) => {
-    if (!data.bookingId || !data.text) return;
-    const Message = require('./models/Message');
-    try {
-      const message = await Message.create({
-        bookingId: data.bookingId,
-        senderId: socket.user.id,
-        senderRole: socket.user.role,
-        text: data.text,
-      });
-      io.to(`booking_${data.bookingId}`).emit('new_message', message);
-    } catch (err) {
-      console.error('[Chat] Message error:', err.message);
-    }
-  });
-
-  socket.on('disconnect', () => {
-    // Decrement connection count
-    const count = userSocketCount.get(userId) || 1;
-    if (count <= 1) {
-      userSocketCount.delete(userId);
-    } else {
-      userSocketCount.set(userId, count - 1);
-    }
-  });
-});
-
 // Error handler
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+// Socket.io and HTTP server — only outside Vercel (serverless doesn't support WebSockets)
 if (process.env.VERCEL !== '1') {
-  server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+  const http = require('http');
+  const { Server } = require('socket.io');
+  const { verifyToken } = require('./utils/jwt');
+  const { recoverStaleAssignments } = require('./utils/assignmentTimeout');
+
+  const server = http.createServer(app);
+
+  const io = new Server(server, {
+    cors: corsOptions,
+    maxHttpBufferSize: 1e6,
+    pingInterval: 25000,
+    pingTimeout: 20000,
+    connectTimeout: 10000,
   });
-}
 
-// Graceful shutdown — clean up connections on SIGTERM/SIGINT
-const gracefulShutdown = (signal) => {
-  console.log(`\n${signal} received. Shutting down gracefully...`);
+  const userSocketCount = new Map();
+  const MAX_SOCKETS_PER_USER = 3;
 
-  // Stop accepting new connections
-  server.close(() => {
-    console.log('HTTP server closed');
+  app.set('io', io);
 
-    // Disconnect all socket clients
-    io.close(() => {
-      console.log('Socket.io server closed');
+  // Recover stale assignments after DB connects
+  dbReady.then(() => recoverStaleAssignments(app));
 
-      // Close MongoDB connection
-      const mongoose = require('mongoose');
-      mongoose.connection.close(false).then(() => {
-        console.log('MongoDB connection closed');
-        process.exit(0);
-      });
+  // Socket.io JWT authentication middleware
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (!token) {
+      return next(new Error('Authentication required'));
+    }
+    try {
+      const decoded = verifyToken(token);
+      socket.user = decoded; // { id, role }
+
+      const userId = decoded.id;
+      const count = userSocketCount.get(userId) || 0;
+      if (count >= MAX_SOCKETS_PER_USER) {
+        return next(new Error('Too many connections'));
+      }
+
+      next();
+    } catch {
+      next(new Error('Invalid token'));
+    }
+  });
+
+  // Socket.io events
+  io.on('connection', (socket) => {
+    const userId = socket.user?.id;
+
+    userSocketCount.set(userId, (userSocketCount.get(userId) || 0) + 1);
+
+    socket.on('join', (data) => {
+      if (data.id !== socket.user.id || data.role !== socket.user.role) {
+        return;
+      }
+      const room = `${data.role}_${data.id}`;
+      socket.join(room);
+    });
+
+    socket.on('partner_location', (data) => {
+      if (data.bookingId) {
+        io.to(`booking_${data.bookingId}`).emit('location_update', data);
+      }
+    });
+
+    socket.on('join_booking', (data) => {
+      if (data.bookingId) {
+        socket.join(`booking_${data.bookingId}`);
+      }
+    });
+
+    socket.on('chat_message', async (data) => {
+      if (!data.bookingId || !data.text) return;
+      const Message = require('./models/Message');
+      try {
+        const message = await Message.create({
+          bookingId: data.bookingId,
+          senderId: socket.user.id,
+          senderRole: socket.user.role,
+          text: data.text,
+        });
+        io.to(`booking_${data.bookingId}`).emit('new_message', message);
+      } catch (err) {
+        console.error('[Chat] Message error:', err.message);
+      }
+    });
+
+    socket.on('disconnect', () => {
+      const count = userSocketCount.get(userId) || 1;
+      if (count <= 1) {
+        userSocketCount.delete(userId);
+      } else {
+        userSocketCount.set(userId, count - 1);
+      }
     });
   });
 
-  // Force exit after 10 seconds if graceful shutdown hangs
-  setTimeout(() => {
-    console.error('Forced shutdown after timeout');
-    process.exit(1);
-  }, 10000);
-};
+  const PORT = process.env.PORT || 5000;
+  server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+  });
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  // Graceful shutdown
+  const gracefulShutdown = (signal) => {
+    console.log(`\n${signal} received. Shutting down gracefully...`);
+    server.close(() => {
+      console.log('HTTP server closed');
+      io.close(() => {
+        console.log('Socket.io server closed');
+        const mongoose = require('mongoose');
+        mongoose.connection.close(false).then(() => {
+          console.log('MongoDB connection closed');
+          process.exit(0);
+        });
+      });
+    });
+    setTimeout(() => {
+      console.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  };
 
-module.exports = { app, server, io };
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  module.exports = { app, server, io };
+} else {
+  // Vercel serverless — export just the Express app
+  module.exports = app;
+}
