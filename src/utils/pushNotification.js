@@ -1,12 +1,22 @@
-const { Expo } = require('expo-server-sdk');
+let Expo;
+let expo;
 
-const expo = new Expo();
+const getExpo = async () => {
+  if (!expo) {
+    const mod = await import('expo-server-sdk');
+    Expo = mod.Expo || mod.default?.Expo || mod.default;
+    expo = new Expo();
+  }
+  return { Expo, expo };
+};
 
 /**
  * Send a push notification to a single Expo push token.
  */
 const sendPushNotification = async (pushToken, { title, body, data }) => {
-  if (!pushToken || !Expo.isExpoPushToken(pushToken)) {
+  const { Expo: ExpoClass, expo: expoClient } = await getExpo();
+
+  if (!pushToken || !ExpoClass.isExpoPushToken(pushToken)) {
     console.warn('[Push] Invalid Expo push token:', pushToken);
     return;
   }
@@ -27,7 +37,7 @@ const sendPushNotification = async (pushToken, { title, body, data }) => {
   }
 
   try {
-    const [result] = await expo.sendPushNotificationsAsync([message]);
+    const [result] = await expoClient.sendPushNotificationsAsync([message]);
     if (result.status === 'ok') {
       console.log('[Push] Sent successfully');
     } else {
@@ -42,7 +52,9 @@ const sendPushNotification = async (pushToken, { title, body, data }) => {
  * Send push notifications to multiple Expo push tokens.
  */
 const sendPushToMany = async (pushTokens, { title, body, data }) => {
-  const validTokens = pushTokens.filter((t) => t && Expo.isExpoPushToken(t));
+  const { Expo: ExpoClass, expo: expoClient } = await getExpo();
+
+  const validTokens = pushTokens.filter((t) => t && ExpoClass.isExpoPushToken(t));
   if (validTokens.length === 0) return;
 
   const isBooking = data?.type && (data.type.includes('booking') || data.type === 'new_booking' || data.type === 'partner_assigned');
@@ -57,13 +69,13 @@ const sendPushToMany = async (pushTokens, { title, body, data }) => {
     ...(isBooking && { channelId: 'booking_alerts_v3' }),
   }));
 
-  const chunks = expo.chunkPushNotifications(messages);
+  const chunks = expoClient.chunkPushNotifications(messages);
   let successCount = 0;
   let failureCount = 0;
 
   for (const chunk of chunks) {
     try {
-      const results = await expo.sendPushNotificationsAsync(chunk);
+      const results = await expoClient.sendPushNotificationsAsync(chunk);
       results.forEach((r) => {
         if (r.status === 'ok') successCount++;
         else failureCount++;
