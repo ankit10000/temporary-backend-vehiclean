@@ -22,6 +22,7 @@ const userRoutes = require('./routes/userRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const productRoutes = require('./routes/productRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const supportRoutes = require('./routes/supportRoutes');
 
 const app = express();
 
@@ -53,7 +54,7 @@ const corsOptions = {
 
 // Health check (no DB needed)
 app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'Vehiclean API is running' });
+  res.json({ success: true, message: 'AutoSpark API is running' });
 });
 // Connect to MongoDB (lazy — only connects on first API request that needs DB)
 let dbReady = null;
@@ -138,6 +139,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/support', supportRoutes);
 
 // Error handler
 app.use(errorHandler);
@@ -167,8 +169,13 @@ if (!process.env.VERCEL) {
 
   app.set('io', io);
 
-  // Recover stale assignments after DB connects
-  ensureDB().then(() => recoverStaleAssignments(app));
+  const { startBookingReminderCron } = require('./cron/bookingReminders');
+
+  // Recover stale assignments + start cron jobs after DB connects
+  ensureDB().then(() => {
+    recoverStaleAssignments(app);
+    startBookingReminderCron(app);
+  });
 
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;

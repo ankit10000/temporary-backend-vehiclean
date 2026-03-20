@@ -1,8 +1,9 @@
 const User = require('../models/User');
 const Partner = require('../models/Partner');
 const Admin = require('../models/Admin');
-const { generateToken } = require('../utils/jwt');
+const { generateToken, generateRefreshToken, verifyToken } = require('../utils/jwt');
 const { sendResponse, sendError } = require('../utils/response');
+const { sendOtpEmail } = require('../utils/email');
 
 // User Register
 exports.userRegister = async (req, res, next) => {
@@ -15,10 +16,13 @@ exports.userRegister = async (req, res, next) => {
     }
 
     const user = await User.create({ name, email, phone, password });
-    const token = generateToken({ id: user._id, role: 'user' });
+    const tokenPayload = { id: user._id, role: 'user' };
+    const token = generateToken(tokenPayload);
+    const refreshToken = generateRefreshToken(tokenPayload);
 
     sendResponse(res, 201, 'Registration successful', {
       token,
+      refreshToken,
       user: { id: user._id, name: user.name, email: user.email, phone: user.phone, city: user.city, address: user.address },
     });
   } catch (error) {
@@ -45,10 +49,13 @@ exports.userLogin = async (req, res, next) => {
       return sendError(res, 401, 'Invalid email or password');
     }
 
-    const token = generateToken({ id: user._id, role: 'user' });
+    const tokenPayload = { id: user._id, role: 'user' };
+    const token = generateToken(tokenPayload);
+    const refreshToken = generateRefreshToken(tokenPayload);
 
     sendResponse(res, 200, 'Login successful', {
       token,
+      refreshToken,
       user: { id: user._id, name: user.name, email: user.email, phone: user.phone, avatar: user.avatar, city: user.city, address: user.address },
     });
   } catch (error) {
@@ -191,8 +198,13 @@ exports.forgotPassword = async (req, res, next) => {
     account.resetOtpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
     await account.save({ validateModifiedOnly: true });
 
-    // TODO: Send OTP via email service (Nodemailer, SendGrid, etc.)
-    console.log(`[Auth] Password reset OTP for ${email}: ${otp}`);
+    // Send OTP via email
+    try {
+      await sendOtpEmail(email, otp);
+    } catch (emailErr) {
+      console.error('[Auth] Failed to send OTP email:', emailErr.message);
+      return sendError(res, 500, 'Failed to send OTP email. Please try again later.');
+    }
 
     sendResponse(res, 200, 'OTP sent to your email', { email });
   } catch (error) {
@@ -223,6 +235,41 @@ exports.resetPassword = async (req, res, next) => {
     await account.save();
 
     sendResponse(res, 200, 'Password reset successful');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Refresh Token — issue new access token using a valid refresh token
+exports.refreshToken = async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return sendError(res, 400, 'Refresh token is required');
+    }
+
+    let decoded;
+    try {
+      decoded = verifyToken(refreshToken);
+    } catch {
+      return sendError(res, 401, 'Invalid or expired refresh token');
+    }
+
+    // Verify user still exists and is not blocked/deleted
+    const Model = decoded.role === 'partner' ? Partner : decoded.role === 'admin' ? Admin : User;
+    const account = await Model.findById(decoded.id);
+    if (!account || account.isDeleted || account.isBlocked) {
+      return sendError(res, 401, 'Account not found or disabled');
+    }
+
+    const tokenPayload = { id: decoded.id, role: decoded.role };
+    const newToken = generateToken(tokenPayload);
+    const newRefreshToken = generateRefreshToken(tokenPayload);
+
+    sendResponse(res, 200, 'Token refreshed', {
+      token: newToken,
+      refreshToken: newRefreshToken,
+    });
   } catch (error) {
     next(error);
   }

@@ -41,6 +41,7 @@ const bookingSchema = new mongoose.Schema(
     completedAt: { type: Date },
     refundTransactionId: { type: String, default: '' },
     refundedAt: { type: Date },
+    reminderSent: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

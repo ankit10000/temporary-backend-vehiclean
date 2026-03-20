@@ -10,6 +10,7 @@ const {
   getProfile,
   forgotPassword,
   resetPassword,
+  refreshToken,
 } = require('../controllers/authController');
 const { protect, attachUser } = require('../middleware/auth');
 const validate = require('../middleware/validate');
@@ -36,6 +37,9 @@ router.post('/admin/login', loginRules, validate, adminLogin);
 // Password reset (public)
 router.post('/forgot-password', forgotPasswordRules, validate, forgotPassword);
 router.post('/reset-password', resetPasswordRules, validate, resetPassword);
+
+// Token refresh (public — uses refresh token)
+router.post('/refresh-token', refreshToken);
 
 // Protected routes
 router.post('/change-password', protect, changePasswordRules, validate, changePassword);

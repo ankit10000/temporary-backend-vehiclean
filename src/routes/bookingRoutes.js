@@ -6,6 +6,7 @@ const {
   getUserBookings,
   getBookingById,
   cancelBooking,
+  rescheduleBooking,
   getPartnerBookings,
   respondToBooking,
   updateJobStatus,
@@ -40,5 +41,6 @@ router.post('/:id/photos', protect, authorize('partner'), upload.array('photos',
 // Shared
 router.get('/:id', protect, getBookingById);
 router.patch('/:id/cancel', protect, cancelBookingRules, validate, cancelBooking);
+router.patch('/:id/reschedule', protect, authorize('user'), rescheduleBooking);
 
 module.exports = router;

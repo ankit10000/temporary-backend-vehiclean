@@ -35,6 +35,13 @@ const userSchema = new mongoose.Schema(
       ifscCode: { type: String, default: '' },
       bankName: { type: String, default: '' },
     },
+    addresses: [{
+      label: { type: String, default: 'Home' },
+      full: { type: String, required: true },
+      lat: { type: Number, default: 0 },
+      lng: { type: Number, default: 0 },
+      isDefault: { type: Boolean, default: false },
+    }],
     upiId: { type: String, default: '' },
     isBlocked: { type: Boolean, default: false },
     fcmToken: { type: String, default: '' },

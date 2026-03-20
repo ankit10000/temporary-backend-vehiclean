@@ -139,6 +139,125 @@ exports.updateBankDetails = async (req, res, next) => {
   }
 };
 
+// Upload avatar
+exports.uploadAvatar = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return sendError(res, 400, 'No image file provided');
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { avatar: req.file.path },
+      { new: true }
+    ).select('-password');
+
+    if (!user) return sendError(res, 404, 'User not found');
+
+    sendResponse(res, 200, 'Avatar updated successfully', {
+      avatar: user.avatar,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Delete account (soft delete)
+exports.deleteAccount = async (req, res, next) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { isDeleted: true, deletedAt: new Date() },
+      { new: true }
+    );
+
+    if (!user) return sendError(res, 404, 'User not found');
+
+    sendResponse(res, 200, 'Account deleted successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ── Address Book CRUD ──
+
+exports.listAddresses = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id, 'addresses').lean();
+    sendResponse(res, 200, 'Addresses fetched', user?.addresses || []);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.addAddress = async (req, res, next) => {
+  try {
+    const { label, full, lat, lng, isDefault } = req.body;
+    if (!full) return sendError(res, 400, 'Address is required');
+
+    const user = await User.findById(req.user.id);
+    if (!user) return sendError(res, 404, 'User not found');
+
+    if (user.addresses.length >= 10) {
+      return sendError(res, 400, 'Maximum 10 addresses allowed');
+    }
+
+    // If marking as default, unset others
+    if (isDefault) {
+      user.addresses.forEach((a) => { a.isDefault = false; });
+    }
+
+    user.addresses.push({ label: label || 'Home', full, lat: lat || 0, lng: lng || 0, isDefault: !!isDefault });
+    await user.save({ validateModifiedOnly: true });
+
+    sendResponse(res, 201, 'Address added', user.addresses);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.updateAddress = async (req, res, next) => {
+  try {
+    const { label, full, lat, lng, isDefault } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) return sendError(res, 404, 'User not found');
+
+    const addr = user.addresses.id(req.params.addressId);
+    if (!addr) return sendError(res, 404, 'Address not found');
+
+    if (label !== undefined) addr.label = label;
+    if (full !== undefined) addr.full = full;
+    if (lat !== undefined) addr.lat = lat;
+    if (lng !== undefined) addr.lng = lng;
+    if (isDefault) {
+      user.addresses.forEach((a) => { a.isDefault = false; });
+      addr.isDefault = true;
+    }
+
+    await user.save({ validateModifiedOnly: true });
+    sendResponse(res, 200, 'Address updated', user.addresses);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.deleteAddress = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return sendError(res, 404, 'User not found');
+
+    const addr = user.addresses.id(req.params.addressId);
+    if (!addr) return sendError(res, 404, 'Address not found');
+
+    addr.deleteOne();
+    await user.save({ validateModifiedOnly: true });
+
+    sendResponse(res, 200, 'Address removed', user.addresses);
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Check service availability in a city
 exports.checkAvailability = async (req, res, next) => {
   try {

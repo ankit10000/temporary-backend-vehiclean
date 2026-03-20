@@ -538,6 +538,77 @@ exports.uploadPhotos = async (req, res, next) => {
   }
 };
 
+// Reschedule booking (change date/time)
+exports.rescheduleBooking = async (req, res, next) => {
+  try {
+    const { slotDate, slotTime } = req.body;
+    if (!slotDate || !slotTime) {
+      return sendError(res, 400, 'New date and time are required');
+    }
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return sendError(res, 404, 'Booking not found');
+
+    // Only allow reschedule for pending/assigned bookings
+    if (!['pending', 'assigned'].includes(booking.status)) {
+      return sendError(res, 400, 'Cannot reschedule booking in current status');
+    }
+
+    // Validate new date is not in the past and within 7 days
+    const now = new Date();
+    const newDate = new Date(slotDate.slice(0, 10) + 'T00:00:00');
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const maxDate = new Date(todayStart);
+    maxDate.setDate(maxDate.getDate() + 7);
+
+    if (newDate < todayStart) {
+      return sendError(res, 400, 'Cannot reschedule to a past date');
+    }
+    if (newDate >= maxDate) {
+      return sendError(res, 400, 'Can only reschedule within the next 7 days');
+    }
+
+    // Validate slot availability
+    const dayStart = new Date(slotDate.slice(0, 10) + 'T00:00:00.000Z');
+    const dayEnd = new Date(slotDate.slice(0, 10) + 'T23:59:59.999Z');
+
+    const existingCount = await Booking.countDocuments({
+      _id: { $ne: booking._id },
+      slotDate: { $gte: dayStart, $lte: dayEnd },
+      slotTime,
+      status: { $nin: ['cancelled', 'awaiting_payment'] },
+    });
+
+    const timeSlot = await TimeSlot.findOne({ date: { $gte: dayStart, $lte: dayEnd } }).lean();
+    let maxBookings = 5;
+    if (timeSlot) {
+      const slotConfig = timeSlot.slots.find((s) => s.time === slotTime);
+      if (slotConfig?.isBlocked) {
+        return sendError(res, 400, 'This time slot is blocked');
+      }
+      if (slotConfig) maxBookings = slotConfig.maxBookings;
+    }
+
+    if (existingCount >= maxBookings) {
+      return sendError(res, 400, 'This time slot is fully booked');
+    }
+
+    booking.slotDate = slotDate;
+    booking.slotTime = slotTime;
+    await booking.save();
+
+    const populated = await Booking.findById(booking._id)
+      .populate('carId')
+      .populate('serviceId')
+      .populate('partnerId', 'name phone avatar');
+
+    sendResponse(res, 200, 'Booking rescheduled successfully', populated);
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Apply promo code (validate)
 exports.validatePromoCode = async (req, res, next) => {
   try {
