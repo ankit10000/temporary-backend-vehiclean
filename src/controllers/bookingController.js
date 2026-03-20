@@ -298,6 +298,10 @@ exports.cancelBooking = async (req, res, next) => {
     booking.status = 'cancelled';
     booking.cancelReason = req.body.reason || '';
     booking.cancelledBy = req.user.role;
+    // Refund if user paid and booking was not yet accepted
+    if (booking.paymentStatus === 'paid') {
+      booking.paymentStatus = 'refunded';
+    }
     await booking.save();
 
     sendResponse(res, 200, 'Booking cancelled successfully', booking);

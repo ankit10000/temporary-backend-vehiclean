@@ -6,6 +6,7 @@ const {
   updateRadius,
   updateLocation,
   updateProfile,
+  updateBankDetails,
   uploadDocuments,
   submitKYC,
   getEarnings,
@@ -35,6 +36,7 @@ router.patch('/working-hours', updateWorkingHoursRules, validate, updateWorkingH
 router.patch('/radius', updateRadiusRules, validate, updateRadius);
 router.patch('/location', updateLocationRules, validate, updateLocation);
 router.patch('/profile', updateProfile);
+router.patch('/bank-details', updateBankDetails);
 router.post('/documents', upload.any(), uploadDocuments);
 router.post('/documents/submit', submitKYC);
 router.get('/earnings', getEarnings);

@@ -446,12 +446,18 @@ exports.assignPartner = async (req, res, next) => {
 
 exports.adminCancelBooking = async (req, res, next) => {
   try {
-    const booking = await Booking.findByIdAndUpdate(
-      req.params.id,
-      { status: 'cancelled', cancelledBy: 'admin', cancelReason: req.body.reason || 'Cancelled by admin' },
-      { new: true }
-    );
+    const booking = await Booking.findById(req.params.id);
     if (!booking) return sendError(res, 404, 'Booking not found');
+
+    booking.status = 'cancelled';
+    booking.cancelledBy = 'admin';
+    booking.cancelReason = req.body.reason || 'Cancelled by admin';
+    // Company-side cancel = full refund
+    if (booking.paymentStatus === 'paid') {
+      booking.paymentStatus = 'refunded';
+    }
+    await booking.save();
+
     sendResponse(res, 200, 'Booking cancelled', booking);
   } catch (error) {
     next(error);

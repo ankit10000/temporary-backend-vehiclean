@@ -117,6 +117,28 @@ exports.markNotificationRead = async (req, res, next) => {
   }
 };
 
+// Update bank / UPI details
+exports.updateBankDetails = async (req, res, next) => {
+  try {
+    const { accountHolder, accountNumber, ifscCode, bankName, upiId } = req.body;
+    const updateData = {};
+    if (accountHolder || accountNumber || ifscCode || bankName) {
+      updateData.bankDetails = {
+        accountHolder: accountHolder || '',
+        accountNumber: accountNumber || '',
+        ifscCode: ifscCode || '',
+        bankName: bankName || '',
+      };
+    }
+    if (upiId !== undefined) updateData.upiId = upiId;
+
+    const user = await User.findByIdAndUpdate(req.user.id, updateData, { new: true }).select('-password');
+    sendResponse(res, 200, 'Bank details updated', user);
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Check service availability in a city
 exports.checkAvailability = async (req, res, next) => {
   try {

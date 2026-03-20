@@ -90,6 +90,28 @@ exports.updateProfile = async (req, res, next) => {
   }
 };
 
+// Update bank / UPI details
+exports.updateBankDetails = async (req, res, next) => {
+  try {
+    const { accountHolder, accountNumber, ifscCode, bankName, upiId } = req.body;
+    const updateData = {};
+    if (accountHolder || accountNumber || ifscCode || bankName) {
+      updateData.bankDetails = {
+        accountHolder: accountHolder || '',
+        accountNumber: accountNumber || '',
+        ifscCode: ifscCode || '',
+        bankName: bankName || '',
+      };
+    }
+    if (upiId !== undefined) updateData.upiId = upiId;
+
+    const partner = await Partner.findByIdAndUpdate(req.user.id, updateData, { new: true }).select('-password');
+    sendResponse(res, 200, 'Bank details updated', partner);
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Upload documents
 const VALID_DOC_TYPES = ['aadhaar', 'pan', 'bankDetails', 'photo', 'drivingLicense'];
 

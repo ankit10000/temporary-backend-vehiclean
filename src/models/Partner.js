@@ -74,6 +74,13 @@ const partnerSchema = new mongoose.Schema(
     totalBookings: { type: Number, default: 0 },
     totalEarnings: { type: Number, default: 0 },
     walletBalance: { type: Number, default: 0 },
+    bankDetails: {
+      accountHolder: { type: String, default: '' },
+      accountNumber: { type: String, default: '' },
+      ifscCode: { type: String, default: '' },
+      bankName: { type: String, default: '' },
+    },
+    upiId: { type: String, default: '' },
     minBookings: { type: Number, default: 0 },
     maxBookings: { type: Number, default: 10 },
     fcmToken: { type: String, default: '' },
