@@ -59,6 +59,10 @@ router.get('/bookings', admin.getAllBookings);
 router.patch('/bookings/:id/assign', assignPartnerRules, validate, admin.assignPartner);
 router.patch('/bookings/:id/cancel', admin.adminCancelBooking);
 
+// Refunds
+router.get('/refunds', admin.getRefunds);
+router.patch('/refunds/:id', admin.processRefund);
+
 // Payments
 router.get('/payments', admin.getAllPayments);
 

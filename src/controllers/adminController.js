@@ -452,9 +452,9 @@ exports.adminCancelBooking = async (req, res, next) => {
     booking.status = 'cancelled';
     booking.cancelledBy = 'admin';
     booking.cancelReason = req.body.reason || 'Cancelled by admin';
-    // Company-side cancel = full refund
+    // Company-side cancel = refund pending (admin will process)
     if (booking.paymentStatus === 'paid') {
-      booking.paymentStatus = 'refunded';
+      booking.paymentStatus = 'refund_pending';
     }
     await booking.save();
 
@@ -848,6 +848,54 @@ exports.deleteReview = async (req, res, next) => {
     }
 
     sendResponse(res, 200, 'Review deleted');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Refund Management
+exports.getRefunds = async (req, res, next) => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query;
+    const filter = {
+      status: 'cancelled',
+      paymentStatus: status || { $in: ['refund_pending', 'refunded'] },
+    };
+
+    const bookings = await Booking.find(filter)
+      .populate('userId', 'name phone email bankDetails upiId')
+      .populate('serviceId', 'name')
+      .sort('-updatedAt')
+      .skip((page - 1) * limit)
+      .limit(Number(limit));
+
+    const total = await Booking.countDocuments(filter);
+
+    sendResponse(res, 200, 'Refunds fetched', {
+      refunds: bookings,
+      pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / limit) },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.processRefund = async (req, res, next) => {
+  try {
+    const { transactionId } = req.body;
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return sendError(res, 404, 'Booking not found');
+
+    if (booking.paymentStatus !== 'refund_pending') {
+      return sendError(res, 400, 'This booking is not pending refund');
+    }
+
+    booking.paymentStatus = 'refunded';
+    booking.refundTransactionId = transactionId || '';
+    booking.refundedAt = new Date();
+    await booking.save();
+
+    sendResponse(res, 200, 'Refund processed', booking);
   } catch (error) {
     next(error);
   }

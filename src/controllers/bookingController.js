@@ -298,9 +298,9 @@ exports.cancelBooking = async (req, res, next) => {
     booking.status = 'cancelled';
     booking.cancelReason = req.body.reason || '';
     booking.cancelledBy = req.user.role;
-    // Refund if user paid and booking was not yet accepted
+    // Mark refund pending if user had paid (admin will process the actual refund)
     if (booking.paymentStatus === 'paid') {
-      booking.paymentStatus = 'refunded';
+      booking.paymentStatus = 'refund_pending';
     }
     await booking.save();
 

@@ -20,7 +20,7 @@ const bookingSchema = new mongoose.Schema(
     },
     paymentStatus: {
       type: String,
-      enum: ['pending', 'paid', 'failed', 'refunded'],
+      enum: ['pending', 'paid', 'failed', 'refund_pending', 'refunded'],
       default: 'pending',
     },
     amount: { type: Number, required: true, min: 0 },
@@ -39,6 +39,8 @@ const bookingSchema = new mongoose.Schema(
     cancelReason: { type: String, default: '' },
     cancelledBy: { type: String, enum: ['user', 'partner', 'admin', ''], default: '' },
     completedAt: { type: Date },
+    refundTransactionId: { type: String, default: '' },
+    refundedAt: { type: Date },
   },
   { timestamps: true }
 );
