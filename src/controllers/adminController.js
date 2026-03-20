@@ -495,7 +495,7 @@ exports.getWithdrawals = async (req, res, next) => {
     if (status) filter.status = status;
 
     const withdrawals = await Withdrawal.find(filter)
-      .populate('partnerId', 'name phone email')
+      .populate('partnerId', 'name phone email bankDetails upiId')
       .sort('-createdAt')
       .skip((page - 1) * limit)
       .limit(Number(limit));
